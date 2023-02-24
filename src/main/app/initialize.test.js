@@ -50,6 +50,11 @@ jest.mock('electron', () => ({
         on: jest.fn(),
         handle: jest.fn(),
         emit: jest.fn(),
+        removeHandler: jest.fn(),
+        removeListener: jest.fn(),
+    },
+    screen: {
+        on: jest.fn(),
     },
     session: {
         defaultSession: {
@@ -148,6 +153,7 @@ jest.mock('main/windows/windowManager', () => ({
     sendToMattermostViews: jest.fn(),
     sendToRenderer: jest.fn(),
     getServerNameByWebContentsId: jest.fn(),
+    getServerURLFromWebContentsId: jest.fn(),
 }));
 describe('main/app/initialize', () => {
     beforeEach(() => {
@@ -232,6 +238,7 @@ describe('main/app/initialize', () => {
         });
 
         it('should allow permission requests for supported types from trusted URLs', async () => {
+            WindowManager.getServerURLFromWebContentsId.mockReturnValue(new URL('http://server-1.com'));
             let callback = jest.fn();
             session.defaultSession.setPermissionRequestHandler.mockImplementation((cb) => {
                 cb({id: 1, getURL: () => 'http://server-1.com'}, 'bad-permission', callback);

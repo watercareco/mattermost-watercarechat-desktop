@@ -10,15 +10,24 @@ import {
     MINIMUM_CALLS_WIDGET_HEIGHT,
     CALLS_PLUGIN_ID,
 } from 'common/utils/constants';
+import WebContentsEventManager from '../views/webContentEvents';
 
 import CallsWidgetWindow from './callsWidgetWindow';
 
 jest.mock('electron', () => ({
+    app: {
+        getAppPath: () => '/path/to/app',
+    },
     BrowserWindow: jest.fn(),
     ipcMain: {
         on: jest.fn(),
         off: jest.fn(),
+        handle: jest.fn(),
     },
+}));
+
+jest.mock('../views/webContentEvents', () => ({
+    generateNewWindowListener: jest.fn(),
 }));
 
 describe('main/windows/callsWidgetWindow', () => {
@@ -51,6 +60,10 @@ describe('main/windows/callsWidgetWindow', () => {
         baseWindow.setBackgroundColor = jest.fn();
         baseWindow.setMenuBarVisibility = jest.fn();
         baseWindow.setBounds = jest.fn();
+        baseWindow.webContents = {
+            setWindowOpenHandler: jest.fn(),
+            on: jest.fn(),
+        };
 
         beforeEach(() => {
             mainWindow.getBounds.mockImplementation(() => {
@@ -87,8 +100,6 @@ describe('main/windows/callsWidgetWindow', () => {
             expect(BrowserWindow).toHaveBeenCalledWith(expect.objectContaining({
                 width: MINIMUM_CALLS_WIDGET_WIDTH,
                 height: MINIMUM_CALLS_WIDGET_HEIGHT,
-                minWidth: MINIMUM_CALLS_WIDGET_WIDTH,
-                minHeight: MINIMUM_CALLS_WIDGET_HEIGHT,
                 fullscreen: false,
                 resizable: false,
                 frame: false,
@@ -138,6 +149,7 @@ describe('main/windows/callsWidgetWindow', () => {
             });
 
             baseWindow.webContents = {
+                ...baseWindow.webContents,
                 openDevTools: jest.fn(),
             };
 
@@ -176,57 +188,87 @@ describe('main/windows/callsWidgetWindow', () => {
                 winBounds = bounds;
             });
 
+            baseWindow.webContents.getZoomFactor = jest.fn(() => 1.0);
+
             const widgetWindow = new CallsWidgetWindow(mainWindow, mainView, widgetConfig);
             widgetWindow.win.emit('ready-to-show');
 
             expect(baseWindow.setBounds).toHaveBeenCalledTimes(2);
 
+            expect(baseWindow.setBounds).toHaveBeenCalledWith({
+                x: 12,
+                y: 720 - MINIMUM_CALLS_WIDGET_HEIGHT - 12,
+                width: MINIMUM_CALLS_WIDGET_WIDTH,
+                height: MINIMUM_CALLS_WIDGET_HEIGHT,
+            });
+
             widgetWindow.onResize(null, {
-                element: 'calls-widget-menu',
+                element: 'calls-widget',
+                width: 300,
                 height: 100,
             });
 
             expect(baseWindow.setBounds).toHaveBeenCalledWith({
                 x: 12,
-                y: 518,
-                width: MINIMUM_CALLS_WIDGET_WIDTH,
-                height: MINIMUM_CALLS_WIDGET_HEIGHT + 100,
+                y: 720 - 100 - 12,
+                width: 300,
+                height: 100,
+            });
+        });
+
+        it('zoom', () => {
+            baseWindow.show = jest.fn(() => {
+                baseWindow.emit('show');
             });
 
-            widgetWindow.onResize(null, {
-                element: 'calls-widget-audio-menu',
-                width: 100,
-            });
-
-            expect(baseWindow.setBounds).toHaveBeenCalledWith({
-                x: 12,
-                y: 518,
-                width: MINIMUM_CALLS_WIDGET_WIDTH + 100,
-                height: MINIMUM_CALLS_WIDGET_HEIGHT + 100,
-            });
-
-            widgetWindow.onResize(null, {
-                element: 'calls-widget-audio-menu',
-                width: 0,
-            });
-
-            expect(baseWindow.setBounds).toHaveBeenCalledWith({
-                x: 12,
-                y: 518,
-                width: MINIMUM_CALLS_WIDGET_WIDTH,
-                height: MINIMUM_CALLS_WIDGET_HEIGHT + 100,
-            });
-
-            widgetWindow.onResize(null, {
-                element: 'calls-widget-menu',
-                height: 0,
-            });
-
-            expect(baseWindow.setBounds).toHaveBeenCalledWith({
-                x: 12,
-                y: 618,
+            let winBounds = {
+                x: 0,
+                y: 0,
                 width: MINIMUM_CALLS_WIDGET_WIDTH,
                 height: MINIMUM_CALLS_WIDGET_HEIGHT,
+            };
+            baseWindow.getBounds = jest.fn(() => {
+                return winBounds;
+            });
+
+            baseWindow.setBounds = jest.fn((bounds) => {
+                winBounds = bounds;
+            });
+
+            baseWindow.webContents.getZoomFactor = jest.fn(() => 1.0);
+
+            const widgetWindow = new CallsWidgetWindow(mainWindow, mainView, widgetConfig);
+            widgetWindow.win.emit('ready-to-show');
+
+            expect(baseWindow.setBounds).toHaveBeenCalledTimes(1);
+            expect(baseWindow.webContents.getZoomFactor).toHaveBeenCalledTimes(0);
+
+            baseWindow.webContents.getZoomFactor = jest.fn(() => 2.0);
+            widgetWindow.onResize(null, {
+                element: 'calls-widget',
+                width: 300,
+                height: 100,
+            });
+            expect(baseWindow.webContents.getZoomFactor).toHaveBeenCalledTimes(1);
+            expect(baseWindow.setBounds).toHaveBeenCalledWith({
+                x: 12,
+                y: 720 - 200 - 12,
+                width: 600,
+                height: 200,
+            });
+
+            baseWindow.webContents.getZoomFactor = jest.fn(() => 0.5);
+            widgetWindow.onResize(null, {
+                element: 'calls-widget',
+                width: 300,
+                height: 100,
+            });
+            expect(baseWindow.webContents.getZoomFactor).toHaveBeenCalledTimes(1);
+            expect(baseWindow.setBounds).toHaveBeenCalledWith({
+                x: 12,
+                y: 720 - 50 - 12,
+                width: 150,
+                height: 50,
             });
         });
 
@@ -258,6 +300,7 @@ describe('main/windows/callsWidgetWindow', () => {
 
         it('onShareScreen', () => {
             baseWindow.webContents = {
+                ...baseWindow.webContents,
                 send: jest.fn(),
             };
 
@@ -272,6 +315,7 @@ describe('main/windows/callsWidgetWindow', () => {
 
         it('onJoinedCall', () => {
             baseWindow.webContents = {
+                ...baseWindow.webContents,
                 send: jest.fn(),
             };
 
@@ -281,6 +325,82 @@ describe('main/windows/callsWidgetWindow', () => {
             };
             widgetWindow.onJoinedCall(null, message);
             expect(widgetWindow.mainView.view.webContents.send).toHaveBeenCalledWith(CALLS_JOINED_CALL, message);
+        });
+
+        it('menubar disabled on popout', () => {
+            const widgetWindow = new CallsWidgetWindow(mainWindow, mainView, widgetConfig);
+            expect(widgetWindow.onPopOutOpen()).toHaveProperty('action', 'allow');
+            expect(widgetWindow.onPopOutOpen().overrideBrowserWindowOptions).toHaveProperty('autoHideMenuBar', true);
+        });
+
+        it('onPopOutFocus', () => {
+            baseWindow.webContents = {
+                ...baseWindow.webContents,
+                send: jest.fn(),
+            };
+
+            baseWindow.restore = jest.fn();
+
+            const widgetWindow = new CallsWidgetWindow(mainWindow, mainView, widgetConfig);
+
+            expect(baseWindow.webContents.setWindowOpenHandler).toHaveBeenCalledWith(widgetWindow.onPopOutOpen);
+            expect(baseWindow.webContents.on).toHaveBeenCalledWith('did-create-window', widgetWindow.onPopOutCreate);
+
+            expect(widgetWindow.popOut).toBeNull();
+
+            const popOut = new EventEmitter();
+            popOut.webContents = {
+                setWindowOpenHandler: jest.fn(),
+                on: jest.fn(),
+                id: 'webContentsId',
+            };
+            popOut.focus = jest.fn();
+            popOut.restore = jest.fn();
+            popOut.isMinimized = jest.fn().mockReturnValue(false);
+
+            widgetWindow.onPopOutFocus();
+            expect(popOut.focus).not.toHaveBeenCalled();
+            expect(popOut.restore).not.toHaveBeenCalled();
+
+            widgetWindow.onPopOutCreate(popOut);
+            expect(widgetWindow.popOut).toBe(popOut);
+            expect(popOut.webContents.setWindowOpenHandler).toHaveBeenCalled();
+            expect(WebContentsEventManager.generateNewWindowListener).toHaveBeenCalledWith('webContentsId', true);
+
+            widgetWindow.onPopOutFocus();
+            expect(popOut.focus).toHaveBeenCalled();
+            expect(popOut.restore).not.toHaveBeenCalled();
+
+            popOut.isMinimized = jest.fn().mockReturnValue(true);
+            widgetWindow.onPopOutFocus();
+            expect(popOut.focus).toHaveBeenCalled();
+            expect(popOut.restore).toHaveBeenCalled();
+        });
+
+        it('getWebContentsId', () => {
+            baseWindow.webContents = {
+                ...baseWindow.webContents,
+                id: 'testID',
+            };
+
+            const widgetWindow = new CallsWidgetWindow(mainWindow, mainView, widgetConfig);
+            expect(widgetWindow.getWebContentsId()).toBe('testID');
+        });
+
+        it('getURL', () => {
+            baseWindow.webContents = {
+                ...baseWindow.webContents,
+                id: 'testID',
+                getURL: jest.fn(() => 'http://localhost:8065/'),
+            };
+
+            const widgetWindow = new CallsWidgetWindow(mainWindow, mainView, widgetConfig);
+            expect(widgetWindow.getURL().toString()).toBe('http://localhost:8065/');
+        });
+
+        it('getMainView', () => {
+            const widgetWindow = new CallsWidgetWindow(mainWindow, mainView, widgetConfig);
+            expect(widgetWindow.getMainView()).toEqual(mainView);
         });
     });
 });

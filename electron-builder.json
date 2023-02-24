@@ -169,5 +169,11 @@
     },
     "nsis": {
         "artifactName": "${version}/${name}-setup-${version}-win.${ext}"
+    },
+    "rpm": {
+        "fpm": [
+            "--rpm-rpmbuild-define",
+            "_build_id_links none"
+        ]
     }
 }

@@ -2,7 +2,6 @@
 // See LICENSE.txt for license information.
 
 import url from 'url';
-
 import {EventEmitter} from 'events';
 import {BrowserWindow, Rectangle, ipcMain, IpcMainEvent} from 'electron';
 import log from 'electron-log';
@@ -24,11 +23,15 @@ import {
     CALLS_PLUGIN_ID,
 } from 'common/utils/constants';
 import Utils from 'common/utils/util';
+import urlUtils from 'common/utils/url';
 import {
+    CALLS_JOINED_CALL,
+    CALLS_POPOUT_FOCUS,
     CALLS_WIDGET_RESIZE,
     CALLS_WIDGET_SHARE_SCREEN,
-    CALLS_JOINED_CALL,
 } from 'common/communication';
+import webContentsEventManager from 'main/views/webContentEvents';
+import Config from 'common/config';
 
 type LoadURLOpts = {
     extraHeaders: string;
@@ -37,6 +40,7 @@ type LoadURLOpts = {
 export default class CallsWidgetWindow extends EventEmitter {
     public win: BrowserWindow;
     private main: BrowserWindow;
+    private popOut: BrowserWindow | null = null;
     private mainView: MattermostView;
     private config: CallsWidgetWindowConfig;
     private boundsErr: Rectangle = {
@@ -44,11 +48,6 @@ export default class CallsWidgetWindow extends EventEmitter {
         y: 0,
         width: 0,
         height: 0,
-    };
-    private offsetsMap = {
-        'calls-widget-menu': {
-            height: 0,
-        },
     };
 
     constructor(mainWindow: BrowserWindow, mainView: MattermostView, config: CallsWidgetWindowConfig) {
@@ -60,8 +59,6 @@ export default class CallsWidgetWindow extends EventEmitter {
         this.win = new BrowserWindow({
             width: MINIMUM_CALLS_WIDGET_WIDTH,
             height: MINIMUM_CALLS_WIDGET_HEIGHT,
-            minWidth: MINIMUM_CALLS_WIDGET_WIDTH,
-            minHeight: MINIMUM_CALLS_WIDGET_HEIGHT,
             title: 'Calls Widget',
             fullscreen: false,
             resizable: false,
@@ -81,6 +78,10 @@ export default class CallsWidgetWindow extends EventEmitter {
         ipcMain.on(CALLS_WIDGET_RESIZE, this.onResize);
         ipcMain.on(CALLS_WIDGET_SHARE_SCREEN, this.onShareScreen);
         ipcMain.on(CALLS_JOINED_CALL, this.onJoinedCall);
+        ipcMain.on(CALLS_POPOUT_FOCUS, this.onPopOutFocus);
+
+        this.win.webContents.setWindowOpenHandler(this.onPopOutOpen);
+        this.win.webContents.on('did-create-window', this.onPopOutCreate);
 
         this.load();
     }
@@ -116,6 +117,7 @@ export default class CallsWidgetWindow extends EventEmitter {
         ipcMain.off(CALLS_WIDGET_RESIZE, this.onResize);
         ipcMain.off(CALLS_WIDGET_SHARE_SCREEN, this.onShareScreen);
         ipcMain.off(CALLS_JOINED_CALL, this.onJoinedCall);
+        ipcMain.off(CALLS_POPOUT_FOCUS, this.onPopOutFocus);
     }
 
     private getWidgetURL() {
@@ -130,40 +132,18 @@ export default class CallsWidgetWindow extends EventEmitter {
     }
 
     private onResize = (event: IpcMainEvent, msg: CallsWidgetResizeMessage) => {
-        log.debug('CallsWidgetWindow.onResize');
+        log.debug('CallsWidgetWindow.onResize', msg);
 
+        const zoomFactor = this.win.webContents.getZoomFactor();
         const currBounds = this.win.getBounds();
+        const newBounds = {
+            x: currBounds.x,
+            y: currBounds.y - (Math.ceil(msg.height * zoomFactor) - currBounds.height),
+            width: Math.ceil(msg.width * zoomFactor),
+            height: Math.ceil(msg.height * zoomFactor),
+        };
 
-        switch (msg.element) {
-        case 'calls-widget-audio-menu': {
-            const newBounds = {
-                x: currBounds.x,
-                y: currBounds.y,
-                width: msg.width > 0 ? currBounds.width + msg.width : MINIMUM_CALLS_WIDGET_WIDTH,
-                height: currBounds.height,
-            };
-
-            this.setBounds(newBounds);
-
-            break;
-        }
-        case 'calls-widget-menu': {
-            const hOff = this.offsetsMap[msg.element].height;
-
-            const newBounds = {
-                x: currBounds.x,
-                y: msg.height === 0 ? currBounds.y + hOff : currBounds.y - (msg.height - hOff),
-                width: MINIMUM_CALLS_WIDGET_WIDTH,
-                height: MINIMUM_CALLS_WIDGET_HEIGHT + msg.height,
-            };
-
-            this.setBounds(newBounds);
-
-            this.offsetsMap[msg.element].height = msg.height;
-
-            break;
-        }
-        }
+        this.setBounds(newBounds);
     }
 
     private onShareScreen = (ev: IpcMainEvent, viewName: string, message: CallsWidgetShareScreenMessage) => {
@@ -208,6 +188,46 @@ export default class CallsWidgetWindow extends EventEmitter {
         }
 
         this.setBounds(initialBounds);
+    }
+
+    private onPopOutOpen = () => {
+        return {
+            action: 'allow' as const,
+            overrideBrowserWindowOptions: {
+                autoHideMenuBar: true,
+            },
+        };
+    }
+
+    private onPopOutCreate = (win: BrowserWindow) => {
+        this.popOut = win;
+
+        // Let the webContentsEventManager handle links that try to open a new window
+        const spellcheck = Config.useSpellChecker;
+        const newWindow = webContentsEventManager.generateNewWindowListener(this.popOut.webContents.id, spellcheck);
+        this.popOut.webContents.setWindowOpenHandler(newWindow);
+    }
+
+    private onPopOutFocus = () => {
+        if (!this.popOut) {
+            return;
+        }
+        if (this.popOut.isMinimized()) {
+            this.popOut.restore();
+        }
+        this.popOut.focus();
+    }
+
+    public getWebContentsId() {
+        return this.win.webContents.id;
+    }
+
+    public getURL() {
+        return urlUtils.parseURL(this.win.webContents.getURL());
+    }
+
+    public getMainView() {
+        return this.mainView;
     }
 }
 
