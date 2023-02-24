@@ -1,8 +1,7 @@
 // Copyright (c) 2016-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
-import path from 'path';
 
-import {app, BrowserView, BrowserWindow, ipcMain, IpcMainEvent, IpcMainInvokeEvent} from 'electron';
+import {BrowserView, BrowserWindow, ipcMain, IpcMainEvent, IpcMainInvokeEvent} from 'electron';
 
 import log from 'electron-log';
 
@@ -11,7 +10,6 @@ import {DownloadedItem, DownloadedItems} from 'types/downloads';
 
 import {
     CLOSE_DOWNLOADS_DROPDOWN,
-    DOWNLOADS_DROPDOWN_SHOW_FILE_IN_FOLDER,
     EMIT_CONFIGURATION,
     OPEN_DOWNLOADS_DROPDOWN,
     RECEIVE_DOWNLOADS_DROPDOWN_SIZE,
@@ -20,6 +18,7 @@ import {
     UPDATE_DOWNLOADS_DROPDOWN,
     UPDATE_DOWNLOADS_DROPDOWN_MENU_ITEM,
     GET_DOWNLOADED_IMAGE_THUMBNAIL_LOCATION,
+    DOWNLOADS_DROPDOWN_OPEN_FILE,
 } from 'common/communication';
 import {TAB_BAR_HEIGHT, DOWNLOADS_DROPDOWN_WIDTH, DOWNLOADS_DROPDOWN_HEIGHT, DOWNLOADS_DROPDOWN_FULL_WIDTH} from 'common/utils/constants';
 import {getLocalPreload, getLocalURLString} from 'main/utils';
@@ -45,7 +44,7 @@ export default class DownloadsDropdownView {
         this.windowBounds = this.window.getContentBounds();
         this.bounds = this.getBounds(DOWNLOADS_DROPDOWN_FULL_WIDTH, DOWNLOADS_DROPDOWN_HEIGHT);
 
-        const preload = getLocalPreload('downloadsDropdown.js');
+        const preload = getLocalPreload('desktopAPI.js');
         this.view = new BrowserView({webPreferences: {
             preload,
 
@@ -66,7 +65,7 @@ export default class DownloadsDropdownView {
         ipcMain.on(REQUEST_DOWNLOADS_DROPDOWN_INFO, this.updateDownloadsDropdown);
         ipcMain.on(REQUEST_CLEAR_DOWNLOADS_DROPDOWN, this.clearDownloads);
         ipcMain.on(RECEIVE_DOWNLOADS_DROPDOWN_SIZE, this.handleReceivedDownloadsDropdownSize);
-        ipcMain.on(DOWNLOADS_DROPDOWN_SHOW_FILE_IN_FOLDER, this.showFileInFolder);
+        ipcMain.on(DOWNLOADS_DROPDOWN_OPEN_FILE, this.openFile);
         ipcMain.on(UPDATE_DOWNLOADS_DROPDOWN, this.updateDownloads);
         ipcMain.on(UPDATE_DOWNLOADS_DROPDOWN_MENU_ITEM, this.updateDownloadsDropdownMenuItem);
         ipcMain.handle(GET_DOWNLOADED_IMAGE_THUMBNAIL_LOCATION, this.getDownloadImageThumbnailLocation);
@@ -144,10 +143,10 @@ export default class DownloadsDropdownView {
         this.handleClose();
     }
 
-    showFileInFolder = (e: IpcMainEvent, item: DownloadedItem) => {
-        log.debug('DownloadsDropdownView.showFileInFolder', {item});
+    openFile = (e: IpcMainEvent, item: DownloadedItem) => {
+        log.debug('DownloadsDropdownView.openFile', {item});
 
-        downloadsManager.showFileInFolder(item);
+        downloadsManager.openFile(item);
     }
 
     getBounds = (width: number, height: number) => {
@@ -204,13 +203,6 @@ export default class DownloadsDropdownView {
     }
 
     getDownloadImageThumbnailLocation = (event: IpcMainInvokeEvent, location: string) => {
-        // eslint-disable-next-line no-undef
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore
-        if (!__IS_MAC_APP_STORE__) {
-            return location;
-        }
-
-        return path.resolve(app.getPath('temp'), path.basename(location));
+        return location;
     }
 }

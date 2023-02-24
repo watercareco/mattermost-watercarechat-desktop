@@ -92,6 +92,18 @@ export function handleShowOnboardingScreens(showWelcomeScreen: boolean, showNewS
     const showWelcomeScreenFunc = () => {
         if (showWelcomeScreen) {
             handleWelcomeScreenModal();
+
+            if (process.env.NODE_ENV === 'test') {
+                const welcomeScreen = ModalManager.modalQueue.find((modal) => modal.key === 'welcomeScreen');
+                if (welcomeScreen?.view.webContents.isLoading()) {
+                    welcomeScreen?.view.webContents.once('did-finish-load', () => {
+                        app.emit('e2e-app-loaded');
+                    });
+                } else {
+                    app.emit('e2e-app-loaded');
+                }
+            }
+
             return;
         }
         if (showNewServerModal) {
@@ -139,13 +151,13 @@ export function handleNewServerModal() {
 
     const html = getLocalURLString('newServer.html');
 
-    const modalPreload = getLocalPreload('modalPreload.js');
+    const preload = getLocalPreload('desktopAPI.js');
 
     const mainWindow = WindowManager.getMainWindow();
     if (!mainWindow) {
         return;
     }
-    const modalPromise = ModalManager.addModal<TeamWithIndex[], Team>('newServer', html, modalPreload, Config.teams.map((team, index) => ({...team, index})), mainWindow, Config.teams.length === 0);
+    const modalPromise = ModalManager.addModal<TeamWithIndex[], Team>('newServer', html, preload, Config.teams.map((team, index) => ({...team, index})), mainWindow, Config.teams.length === 0);
     if (modalPromise) {
         modalPromise.then((data) => {
             const teams = Config.teams;
@@ -171,7 +183,7 @@ export function handleEditServerModal(e: IpcMainEvent, name: string) {
 
     const html = getLocalURLString('editServer.html');
 
-    const modalPreload = getLocalPreload('modalPreload.js');
+    const preload = getLocalPreload('desktopAPI.js');
 
     const mainWindow = WindowManager.getMainWindow();
     if (!mainWindow) {
@@ -184,7 +196,7 @@ export function handleEditServerModal(e: IpcMainEvent, name: string) {
     const modalPromise = ModalManager.addModal<{currentTeams: TeamWithIndex[]; team: TeamWithIndex}, Team>(
         'editServer',
         html,
-        modalPreload,
+        preload,
         {
             currentTeams: Config.teams.map((team, index) => ({...team, index})),
             team: {...Config.teams[serverIndex], index: serverIndex},
@@ -213,13 +225,13 @@ export function handleRemoveServerModal(e: IpcMainEvent, name: string) {
 
     const html = getLocalURLString('removeServer.html');
 
-    const modalPreload = getLocalPreload('modalPreload.js');
+    const preload = getLocalPreload('desktopAPI.js');
 
     const mainWindow = WindowManager.getMainWindow();
     if (!mainWindow) {
         return;
     }
-    const modalPromise = ModalManager.addModal<string, boolean>('removeServer', html, modalPreload, name, mainWindow);
+    const modalPromise = ModalManager.addModal<string, boolean>('removeServer', html, preload, name, mainWindow);
     if (modalPromise) {
         modalPromise.then((remove) => {
             if (remove) {
@@ -253,13 +265,13 @@ export function handleWelcomeScreenModal() {
 
     const html = getLocalURLString('welcomeScreen.html');
 
-    const modalPreload = getLocalPreload('modalPreload.js');
+    const preload = getLocalPreload('desktopAPI.js');
 
     const mainWindow = WindowManager.getMainWindow();
     if (!mainWindow) {
         return;
     }
-    const modalPromise = ModalManager.addModal<TeamWithIndex[], Team>('welcomeScreen', html, modalPreload, Config.teams.map((team, index) => ({...team, index})), mainWindow, Config.teams.length === 0);
+    const modalPromise = ModalManager.addModal<TeamWithIndex[], Team>('welcomeScreen', html, preload, Config.teams.map((team, index) => ({...team, index})), mainWindow, Config.teams.length === 0);
     if (modalPromise) {
         modalPromise.then((data) => {
             const teams = Config.teams;
@@ -321,8 +333,10 @@ export function handleUpdateLastActive(event: IpcMainEvent, serverName: string, 
             team.lastActiveTab = viewOrder;
         }
     });
-    Config.set('teams', teams);
-    Config.set('lastActiveTeam', teams.find((team) => team.name === serverName)?.order || 0);
+    Config.setMultiple({
+        teams,
+        lastActiveTeam: teams.find((team) => team.name === serverName)?.order || 0,
+    });
 }
 
 export function handlePingDomain(event: IpcMainInvokeEvent, url: string): Promise<string> {
