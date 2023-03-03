@@ -39,7 +39,7 @@ trap 'last_command=$current_command; current_command=$BASH_COMMAND' DEBUG
 trap 'echo "\"${last_command}\" command filed with exit code $?."' EXIT
 
 # mattermost repo might not be the origin one, we don't want to enforce that.
-org="github.com:origin"
+org="github.com:mattermost"
 git_origin="$(git remote -v | grep ${org} | grep push | awk '{print $1}')"
 if [[ -z "${git_origin}" ]]; then
     print_warning "Can't find a mattermost remote, defaulting to origin"
