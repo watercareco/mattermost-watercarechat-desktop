@@ -27,16 +27,22 @@ jest.mock('electron', () => ({
 }));
 
 jest.mock('../views/webContentEvents', () => ({
-    generateNewWindowListener: jest.fn(),
+    addWebContentsEventListeners: jest.fn(),
 }));
+
+jest.mock('common/utils/url', () => {
+    const originalModule = jest.requireActual('common/utils/url');
+    return {
+        ...originalModule,
+        ...originalModule.default,
+    };
+});
 
 describe('main/windows/callsWidgetWindow', () => {
     describe('create CallsWidgetWindow', () => {
         const widgetConfig = {
             callID: 'test-call-id',
-            siteURL: 'http://localhost:8065',
             title: '',
-            serverName: 'test-server-name',
             channelURL: '/team/channel_id',
         };
 
@@ -48,8 +54,18 @@ describe('main/windows/callsWidgetWindow', () => {
             view: {
                 webContents: {
                     send: jest.fn(),
+                    id: 'mainViewID',
                 },
             },
+            serverInfo: {
+                server: {
+                    name: 'test-server-name',
+                    url: new URL('http://localhost:8065'),
+                },
+            },
+            getWebContents: () => ({
+                id: 'mainViewID',
+            }),
         };
 
         const baseWindow = new EventEmitter();
@@ -170,6 +186,11 @@ describe('main/windows/callsWidgetWindow', () => {
         });
 
         it('resize', () => {
+            baseWindow.webContents = {
+                ...baseWindow.webContents,
+                id: 'windowID',
+            };
+
             baseWindow.show = jest.fn(() => {
                 baseWindow.emit('show');
             });
@@ -202,7 +223,24 @@ describe('main/windows/callsWidgetWindow', () => {
                 height: MINIMUM_CALLS_WIDGET_HEIGHT,
             });
 
-            widgetWindow.onResize(null, {
+            widgetWindow.onResize({
+                sender: {
+                    id: 'badID',
+                },
+            },
+            'widget',
+            {
+                element: 'calls-widget',
+                width: 300,
+                height: 100,
+            });
+            expect(baseWindow.webContents.getZoomFactor).not.toHaveBeenCalled();
+
+            widgetWindow.onResize({
+                sender: baseWindow.webContents,
+            },
+            'widget',
+            {
                 element: 'calls-widget',
                 width: 300,
                 height: 100,
@@ -217,6 +255,11 @@ describe('main/windows/callsWidgetWindow', () => {
         });
 
         it('zoom', () => {
+            baseWindow.webContents = {
+                ...baseWindow.webContents,
+                id: 'windowID',
+            };
+
             baseWindow.show = jest.fn(() => {
                 baseWindow.emit('show');
             });
@@ -244,7 +287,9 @@ describe('main/windows/callsWidgetWindow', () => {
             expect(baseWindow.webContents.getZoomFactor).toHaveBeenCalledTimes(0);
 
             baseWindow.webContents.getZoomFactor = jest.fn(() => 2.0);
-            widgetWindow.onResize(null, {
+            widgetWindow.onResize({
+                sender: baseWindow.webContents,
+            }, 'widget', {
                 element: 'calls-widget',
                 width: 300,
                 height: 100,
@@ -258,7 +303,10 @@ describe('main/windows/callsWidgetWindow', () => {
             });
 
             baseWindow.webContents.getZoomFactor = jest.fn(() => 0.5);
-            widgetWindow.onResize(null, {
+
+            widgetWindow.onResize({
+                sender: baseWindow.webContents,
+            }, 'widget', {
                 element: 'calls-widget',
                 width: 300,
                 height: 100,
@@ -290,11 +338,29 @@ describe('main/windows/callsWidgetWindow', () => {
         it('getWidgetURL', () => {
             const config = {
                 ...widgetConfig,
-                siteURL: 'http://localhost:8065/subpath',
                 title: 'call test title #/&',
             };
             const widgetWindow = new CallsWidgetWindow(mainWindow, mainView, config);
-            const expected = `${config.siteURL}/plugins/${CALLS_PLUGIN_ID}/standalone/widget.html?call_id=${config.callID}&title=call+test+title+%23%2F%26`;
+            const expected = `${mainView.serverInfo.server.url}plugins/${CALLS_PLUGIN_ID}/standalone/widget.html?call_id=${config.callID}&title=call+test+title+%23%2F%26`;
+            expect(widgetWindow.getWidgetURL()).toBe(expected);
+        });
+
+        it('getWidgetURL - under subpath', () => {
+            const config = {
+                ...widgetConfig,
+                title: 'call test title #/&',
+            };
+
+            const view = {
+                serverInfo: {
+                    server: {
+                        url: new URL('http://localhost:8065/subpath'),
+                    },
+                },
+            };
+
+            const widgetWindow = new CallsWidgetWindow(mainWindow, view, config);
+            const expected = `${view.serverInfo.server.url}/plugins/${CALLS_PLUGIN_ID}/standalone/widget.html?call_id=${config.callID}&title=call+test+title+%23%2F%26`;
             expect(widgetWindow.getWidgetURL()).toBe(expected);
         });
 
@@ -302,6 +368,7 @@ describe('main/windows/callsWidgetWindow', () => {
             baseWindow.webContents = {
                 ...baseWindow.webContents,
                 send: jest.fn(),
+                id: 'windowID',
             };
 
             const widgetWindow = new CallsWidgetWindow(mainWindow, mainView, widgetConfig);
@@ -309,7 +376,15 @@ describe('main/windows/callsWidgetWindow', () => {
                 sourceID: 'test-source-id',
                 withAudio: false,
             };
-            widgetWindow.onShareScreen(null, '', message);
+
+            widgetWindow.onShareScreen({
+                sender: {id: 'badID'},
+            }, '', message);
+            expect(widgetWindow.win.webContents.send).not.toHaveBeenCalled();
+
+            widgetWindow.onShareScreen({
+                sender: baseWindow.webContents,
+            }, '', message);
             expect(widgetWindow.win.webContents.send).toHaveBeenCalledWith(CALLS_WIDGET_SHARE_SCREEN, message);
         });
 
@@ -317,20 +392,36 @@ describe('main/windows/callsWidgetWindow', () => {
             baseWindow.webContents = {
                 ...baseWindow.webContents,
                 send: jest.fn(),
+                id: 'windowID',
             };
 
             const widgetWindow = new CallsWidgetWindow(mainWindow, mainView, widgetConfig);
             const message = {
                 callID: 'test-call-id',
             };
-            widgetWindow.onJoinedCall(null, message);
+
+            widgetWindow.onJoinedCall({
+                sender: {id: 'badID'},
+            }, message);
+            expect(widgetWindow.mainView.view.webContents.send).not.toHaveBeenCalled();
+
+            widgetWindow.onJoinedCall({
+                sender: baseWindow.webContents,
+            }, 'widget', message);
             expect(widgetWindow.mainView.view.webContents.send).toHaveBeenCalledWith(CALLS_JOINED_CALL, message);
         });
 
         it('menubar disabled on popout', () => {
             const widgetWindow = new CallsWidgetWindow(mainWindow, mainView, widgetConfig);
-            expect(widgetWindow.onPopOutOpen()).toHaveProperty('action', 'allow');
-            expect(widgetWindow.onPopOutOpen().overrideBrowserWindowOptions).toHaveProperty('autoHideMenuBar', true);
+            const popOutURL = 'http://localhost:8065/team/com.mattermost.calls/expanded/test-call-id';
+            expect(widgetWindow.onPopOutOpen({url: popOutURL})).toHaveProperty('action', 'allow');
+            expect(widgetWindow.onPopOutOpen({url: popOutURL}).overrideBrowserWindowOptions).toHaveProperty('autoHideMenuBar', true);
+        });
+
+        it('wrong popout url disabled', () => {
+            const widgetWindow = new CallsWidgetWindow(mainWindow, mainView, widgetConfig);
+            const popOutURL = 'http://localhost/team/com.mattermost.calls/expanded/test-call-id';
+            expect(widgetWindow.onPopOutOpen({url: popOutURL})).toHaveProperty('action', 'deny');
         });
 
         it('onPopOutFocus', () => {
@@ -350,7 +441,6 @@ describe('main/windows/callsWidgetWindow', () => {
 
             const popOut = new EventEmitter();
             popOut.webContents = {
-                setWindowOpenHandler: jest.fn(),
                 on: jest.fn(),
                 id: 'webContentsId',
             };
@@ -364,8 +454,7 @@ describe('main/windows/callsWidgetWindow', () => {
 
             widgetWindow.onPopOutCreate(popOut);
             expect(widgetWindow.popOut).toBe(popOut);
-            expect(popOut.webContents.setWindowOpenHandler).toHaveBeenCalled();
-            expect(WebContentsEventManager.generateNewWindowListener).toHaveBeenCalledWith('webContentsId', true);
+            expect(WebContentsEventManager.addWebContentsEventListeners).toHaveBeenCalledWith(popOut.webContents);
 
             widgetWindow.onPopOutFocus();
             expect(popOut.focus).toHaveBeenCalled();
@@ -401,6 +490,50 @@ describe('main/windows/callsWidgetWindow', () => {
         it('getMainView', () => {
             const widgetWindow = new CallsWidgetWindow(mainWindow, mainView, widgetConfig);
             expect(widgetWindow.getMainView()).toEqual(mainView);
+        });
+
+        it('isAllowedEvent', () => {
+            baseWindow.webContents = {
+                ...baseWindow.webContents,
+                id: 'windowID',
+            };
+
+            const widgetWindow = new CallsWidgetWindow(mainWindow, mainView, widgetConfig);
+            expect(widgetWindow.isAllowedEvent({
+                sender: {
+                    id: 'senderID',
+                },
+            })).toEqual(false);
+
+            expect(widgetWindow.isAllowedEvent({
+                sender: widgetWindow.mainView.view.webContents,
+            })).toEqual(true);
+
+            expect(widgetWindow.isAllowedEvent({
+                sender: baseWindow.webContents,
+            })).toEqual(true);
+        });
+
+        it('getPopOutWebContentsId', () => {
+            const widgetWindow = new CallsWidgetWindow(mainWindow, mainView, widgetConfig);
+            widgetWindow.popOut = {
+                webContents: {
+                    id: 'popOutID',
+                },
+            };
+            expect(widgetWindow.getPopOutWebContentsId()).toBe('popOutID');
+        });
+
+        it('onNavigate', () => {
+            const widgetWindow = new CallsWidgetWindow(mainWindow, mainView, widgetConfig);
+
+            const ev = {preventDefault: jest.fn()};
+
+            widgetWindow.onNavigate(ev, widgetWindow.getWidgetURL());
+            expect(ev.preventDefault).not.toHaveBeenCalled();
+
+            widgetWindow.onNavigate(ev, 'http://localhost:8065/invalid/url');
+            expect(ev.preventDefault).toHaveBeenCalledTimes(1);
         });
     });
 });
