@@ -187,27 +187,37 @@ export class WebContentsEventManager {
                             spellcheck: (typeof spellcheck === 'undefined' ? true : spellcheck),
                         },
                     });
-                    this.popupWindow.webContents.setWindowOpenHandler(this.denyNewWindow);
-                    this.popupWindow.once('ready-to-show', () => {
-                        this.popupWindow!.show();
+                    this.popupWindow.webContents.on('will-redirect', (event, url) => {
+                        const parsedURL = urlUtils.parseURL(url);
+                        if (!parsedURL) {
+                            event.preventDefault();
+                            return;
+                        }
+
+                        if (urlUtils.isInternalURL(serverURL, parsedURL) && !urlUtils.isPluginUrl(serverURL, parsedURL) && !urlUtils.isManagedResource(serverURL, parsedURL)) {
+                            event.preventDefault();
+                        }
                     });
+                    this.popupWindow.webContents.setWindowOpenHandler(this.denyNewWindow);
                     this.popupWindow.once('closed', () => {
                         this.popupWindow = undefined;
                     });
+                    const contextMenu = new ContextMenu({}, this.popupWindow);
+                    contextMenu.reload();
                 }
 
+                const popupWindow = this.popupWindow;
+                popupWindow.once('ready-to-show', () => popupWindow.show());
+
                 if (urlUtils.isManagedResource(serverURL, parsedURL)) {
-                    this.popupWindow.loadURL(details.url);
+                    popupWindow.loadURL(details.url);
                 } else {
                     // currently changing the userAgent for popup windows to allow plugins to go through google's oAuth
                     // should be removed once a proper oAuth2 implementation is setup.
-                    this.popupWindow.loadURL(details.url, {
+                    popupWindow.loadURL(details.url, {
                         userAgent: composeUserAgent(),
                     });
                 }
-
-                const contextMenu = new ContextMenu({}, this.popupWindow);
-                contextMenu.reload();
 
                 return {action: 'deny'};
             }
