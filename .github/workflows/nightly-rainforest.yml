@@ -1,8 +1,18 @@
 name: nightly-rainforest
 
 on:
-  schedule:
-    - cron: 0 4 * * 0-5
+  workflow_call:
+    inputs:
+      tag:
+        description: "Reference tag of the nightly build"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Reference tag of the nightly build"
+        required: true
+        type: string
 
 defaults:
   run:
@@ -12,6 +22,8 @@ env:
   TERM: xterm
   MM_DESKTOP_BUILD_DISABLEGPU: true
   MM_DESKTOP_BUILD_SKIPONBOARDINGSCREENS: true
+  MM_WIN_INSTALLERS: 1
+  REFERENCE: ${{ inputs.tag }}
 
 jobs:
   build-msi-installer:
@@ -19,6 +31,8 @@ jobs:
     steps:
       - name: nightly/checkout-repo
         uses: actions/checkout@ac593985615ec2ede58e132d2e21d2b1cbd6127c # v3.3.0
+        with:
+          ref: ${{ env.REFERENCE }}
       - name: nightly/setup-node
         uses: actions/setup-node@64ed1c7eab4cce3362f8c340dee64e5eaeef8f7c # v3.6.0
         with:
@@ -30,11 +44,15 @@ jobs:
         run: ./scripts/Makefile.ps1 optimize
       - name: nightly/install-deps
         shell: powershell
-        run: ./scripts/Makefile.ps1 install-deps
+        run: |
+          ./scripts/Makefile.ps1 install-deps
+          choco install yq --version 4.15.1 -y
+          npm i -g node-gyp
+          node-gyp install
+          node-gyp install --devdir="C:\Users\runneradmin\.electron-gyp" --target=$(jq -r .devDependencies.electron package.json) --dist-url="https://electronjs.org/headers"
+          npm ci --openssl_fips=''
       - name: nightly/test
         uses: ./.github/actions/test
-      - name: nightly/patch-version
-        uses: ./.github/actions/patch-nightly-version
       - name: nightly/build
         shell: powershell
         env:
@@ -52,7 +70,7 @@ jobs:
       - name: nightly/upload-build
         uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
         with:
-          name: build
+          name: build-rainforest
           path: ./build
           retention-days: 5 ## No need to keep them since they are uploaded on S3
 
@@ -61,6 +79,8 @@ jobs:
     steps:
       - name: nightly/checkout-repo
         uses: actions/checkout@ac593985615ec2ede58e132d2e21d2b1cbd6127c # v3.3.0
+        with:
+          ref: ${{ env.REFERENCE }}
       - name: nightly/setup-node
         uses: actions/setup-node@64ed1c7eab4cce3362f8c340dee64e5eaeef8f7c # v3.6.0
         with:
@@ -73,8 +93,6 @@ jobs:
           npm ci
       - name: nightly/test
         uses: ./.github/actions/test
-      - name: nightly/patch-version
-        uses: ./.github/actions/patch-nightly-version
       - name: nightly/build
         env:
           APPLEID: ${{ secrets.MM_DESKTOP_MAC_INSTALLER_APPLE_ID }}
@@ -88,11 +106,11 @@ jobs:
           bash -x ./scripts/patch_updater_yml.sh
           bash -x ./scripts/cp_artifacts.sh release ./build/macos
       - name: nightly/rename-arm64-to-m1
-        run: rename 's/arm64/m1/' ./build/macos-nightly/$(jq -r .version package.json)/*
+        run: rename 's/arm64/m1/' ./build/macos/$(jq -r .version package.json)/*
       - name: nightly/upload-build
         uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
         with:
-          name: build
+          name: build-rainforest
           path: ./build
           retention-days: 5 ## No need to keep them since they are uploaded on S3
 
@@ -102,6 +120,10 @@ jobs:
       - build-mac-installer
       - build-msi-installer
     steps:
+      - name: nightly/checkout-repo
+        uses: actions/checkout@ac593985615ec2ede58e132d2e21d2b1cbd6127c # v3.3.0
+        with:
+          ref: ${{ env.REFERENCE }}
       - name: nightly/setup-aws-credentials
         uses: aws-actions/configure-aws-credentials@67fbcbb121271f7775d2e7715933280b06314838 # v1.7.0
         with:
@@ -110,6 +132,9 @@ jobs:
           aws-secret-access-key: ${{ secrets.MM_DESKTOP_DAILY_AWS_SECRET_ACCESS_KEY }}
       - name: nightly/download-builds
         uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a # v3.0.2
+        with:
+          name: build-rainforest
+          path: build
       - name: nightly/install-missing-deps
         run: |
           sudo apt-get update

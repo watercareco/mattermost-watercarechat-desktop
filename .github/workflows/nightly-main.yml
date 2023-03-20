@@ -1,8 +1,18 @@
-name: nightly-browser-view
+name: nightly-main
 
 on:
-  schedule:
-    - cron: 0 4 * * 0-5
+  workflow_call:
+    inputs:
+      tag:
+        description: "Reference tag of the nightly build"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Reference tag of the nightly build"
+        required: true
+        type: string
 
 defaults:
   run:
@@ -10,6 +20,8 @@ defaults:
 
 env:
   TERM: xterm
+  MM_WIN_INSTALLERS: 1
+  REFERENCE: ${{ inputs.tag }}
 
 jobs:
   build-linux:
@@ -17,6 +29,8 @@ jobs:
     steps:
       - name: ci/checkout-repo
         uses: actions/checkout@ac593985615ec2ede58e132d2e21d2b1cbd6127c # v3.3.0
+        with:
+          ref: ${{ env.REFERENCE }}
       - name: ci/setup-node
         uses: actions/setup-node@64ed1c7eab4cce3362f8c340dee64e5eaeef8f7c # v3.6.0
         with:
@@ -31,8 +45,6 @@ jobs:
           wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.20.1/yq_linux_amd64 && chmod a+x /usr/local/bin/yq
           sudo apt-get update || true && sudo apt-get install -y ca-certificates libxtst-dev libpng++-dev gcc-aarch64-linux-gnu g++-aarch64-linux-gnu jq icnsutils graphicsmagick tzdata
           npm ci
-      - name: nightly/patch-version
-        uses: ./.github/actions/patch-nightly-version
       - name: ci/build
         run: |
           mkdir -p ./build/linux
@@ -42,7 +54,7 @@ jobs:
       - name: ci/upload-build
         uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
         with:
-          name: build
+          name: build-nightly-main
           path: ./build
           retention-days: 5 ## No need to keep them since they are uploaded on S3
 
@@ -51,26 +63,28 @@ jobs:
     steps:
       - name: nightly/checkout-repo
         uses: actions/checkout@ac593985615ec2ede58e132d2e21d2b1cbd6127c # v3.3.0
+        with:
+          ref: ${{ env.REFERENCE }}
       - name: nightly/setup-node
         uses: actions/setup-node@64ed1c7eab4cce3362f8c340dee64e5eaeef8f7c # v3.6.0
         with:
           node-version-file: "package.json"
           cache: "npm"
           cache-dependency-path: package-lock.json
-      - name: nightly/create-build-folder
-        run: mkdir -p ./build
       - name: nightly/optimize
         shell: powershell
-        run: |
-          ./scripts/Makefile.ps1 optimize
+        run: ./scripts/Makefile.ps1 optimize
       - name: nightly/install-deps
         shell: powershell
         run: |
           ./scripts/Makefile.ps1 install-deps
+          choco install yq --version 4.15.1 -y
+          npm i -g node-gyp
+          node-gyp install
+          node-gyp install --devdir="C:\Users\runneradmin\.electron-gyp" --target=$(jq -r .devDependencies.electron package.json) --dist-url="https://electronjs.org/headers"
+          npm ci --openssl_fips=''
       - name: nightly/test
         uses: ./.github/actions/test
-      - name: nightly/patch-version
-        uses: ./.github/actions/patch-nightly-version
       - name: nightly/build
         shell: powershell
         env:
@@ -79,17 +93,16 @@ jobs:
           CSC_KEY_PASSWORD: ${{ secrets.MM_DESKTOP_MSI_INSTALLER_CSC_KEY_PASSWORD }}
           PFX: ${{ secrets.MM_DESKTOP_MSI_INSTALLER_PFX }}
           CSC_LINK: ${{ secrets.MM_DESKTOP_MSI_INSTALLER_CSC_LINK }}
-        run: |
-          ./scripts/Makefile.ps1 build
+        run: ./scripts/Makefile.ps1 build
       - name: nightly/package
         run: |
-          bash -x ./scripts/patch_updater_yml.sh
           mkdir -p ./build/win-release
+          bash -x ./scripts/patch_updater_yml.sh
           bash -x ./scripts/cp_artifacts.sh release ./build/win-release
       - name: nightly/upload-build
         uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
         with:
-          name: build
+          name: build-nightly-main
           path: ./build
           retention-days: 5 ## No need to keep them since they are uploaded on S3
 
@@ -103,19 +116,17 @@ jobs:
       CSC_FOR_PULL_REQUEST: true
       CSC_KEY_PASSWORD: ${{ secrets.MM_DESKTOP_MAC_APP_STORE_CSC_KEY_PASSWORD}}
       CSC_LINK: ${{ secrets.MM_DESKTOP_MAC_APP_STORE_CSC_LINK }}
-    needs:
-      - begin-notification
     steps:
       - name: nightly/checkout-repo
         uses: actions/checkout@ac593985615ec2ede58e132d2e21d2b1cbd6127c # v3.3.0
+        with:
+          ref: ${{ env.REFERENCE }}
       - name: nightly/setup-node
         uses: actions/setup-node@64ed1c7eab4cce3362f8c340dee64e5eaeef8f7c # v3.6.0
         with:
           node-version-file: "package.json"
           cache: "npm"
           cache-dependency-path: package-lock.json
-      - name: nightly/create-build-folder
-        run: mkdir -p ./build
       - name: nightly/install-dependencies
         run: |
           brew install yq
@@ -138,22 +149,20 @@ jobs:
     steps:
       - name: nightly/checkout-repo
         uses: actions/checkout@ac593985615ec2ede58e132d2e21d2b1cbd6127c # v3.3.0
+        with:
+          ref: ${{ env.REFERENCE }}
       - name: nightly/setup-node
         uses: actions/setup-node@64ed1c7eab4cce3362f8c340dee64e5eaeef8f7c # v3.6.0
         with:
           node-version-file: "package.json"
           cache: "npm"
           cache-dependency-path: package-lock.json
-      - name: nightly/create-build-folder
-        run: mkdir -p ./build
       - name: nightly/install-dependencies
         run: |
           brew install yq rename
           npm ci
       - name: nightly/test
         uses: ./.github/actions/test
-      - name: nightly/patch-version
-        uses: ./.github/actions/patch-nightly-version
       - name: nightly/build
         env:
           APPLEID: ${{ secrets.MM_DESKTOP_MAC_INSTALLER_APPLE_ID }}
@@ -171,7 +180,7 @@ jobs:
       - name: nightly/upload-build
         uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce # v3.1.2
         with:
-          name: build
+          name: build-nightly-main
           path: ./build
           retention-days: 5 ## No need to keep them since they are uploaded on S3
 
@@ -186,8 +195,8 @@ jobs:
     steps:
       - name: nightly/checkout-repo
         uses: actions/checkout@ac593985615ec2ede58e132d2e21d2b1cbd6127c # v3.3.0
-      - name: nightly/patch-version
-        uses: ./.github/actions/patch-nightly-version
+        with:
+          ref: ${{ env.REFERENCE }}
       - name: nightly/setup-aws-credentials
         uses: aws-actions/configure-aws-credentials@67fbcbb121271f7775d2e7715933280b06314838 # v1.7.0
         with:
@@ -196,6 +205,9 @@ jobs:
           aws-secret-access-key: ${{ secrets.MM_DESKTOP_RELEASE_AWS_SECRET_ACCESS_KEY }}
       - name: nightly/download-builds
         uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a # v3.0.2
+        with:
+          name: build-nightly-main
+          path: build
       - name: nightly/setup-files-for-aws
         run: |
           mkdir -p ./aws-s3-dist
@@ -208,14 +220,18 @@ jobs:
           mkdir -p ./links
           echo "### Nightly builds:" > ./links/linklist.txt
           echo "Links for $(date +"%b-%d-%Y")" >> ./links/linklist.txt
-          echo "##### :tux: Linux" > ./links/linklist.txt
+          echo "##### :tux: Linux" >> ./links/linklist.txt
           for i in `ls ./build/linux/$(jq -r .version package.json)/` ; do echo "- [$i](https://s3.amazonaws.com/releases.mattermost.com/desktop/$(jq -r .version package.json)/$i)" ; done >> ./links/linklist.txt
           echo "##### :apple_logo: macOS" >> ./links/linklist.txt
           for i in `ls ./build/macos-release/$(jq -r .version package.json)/` ; do echo "- [$i](https://s3.amazonaws.com/releases.mattermost.com/desktop/$(jq -r .version package.json)/$i)" ; done >> ./links/linklist.txt
           echo "##### :windows: Windows" >> ./links/linklist.txt
           for i in `ls ./build/win-release/$(jq -r .version package.json)/` ; do echo "- [$i](https://s3.amazonaws.com/releases.mattermost.com/desktop/$(jq -r .version package.json)/$i)" ; done >> ./links/linklist.txt
           cat ./links/linklist.txt
-          echo "linklist=$(<./links/linklist.txt)" >> "$GITHUB_OUTPUT"
+          LINKLIST=$(<./links/linklist.txt)
+          ## https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#multiline-strings
+          echo 'linklist<<EOF' >> $GITHUB_OUTPUT
+          echo "$LINKLIST" >> $GITHUB_OUTPUT
+          echo 'EOF' >> $GITHUB_OUTPUT
 
   share-links-to-channel:
     runs-on: ubuntu-22.04
@@ -229,4 +245,4 @@ jobs:
           --arg username "NightBuilder" \
           --arg text "${{ needs.upload-to-s3.outputs.links }}" \
           '{"username":$username,"icon_url": $icon_url, "text": $text }' > /tmp/webhook-data.json
-          curl -i -X POST -H "Content-Type: application/json" -d @/tmp/webhook-data.json ${{ secrets.MM_DESKTOP_NIGHTLY_WEBHOOK_URL }} || echo "NOFICATION FAILED! check logs as this will succeed intentionally"
+          curl -i -X POST -H "Content-Type: application/json" -d @/tmp/webhook-data.json ${{ secrets.MM_DESKTOP_NIGHTLY_WEBHOOK_URL }}
