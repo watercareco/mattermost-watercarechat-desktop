@@ -8,28 +8,27 @@ import { BuildConfig } from 'types/config';
 
 /**
  * Build-time configuration. End-users can't change these parameters.
- * @prop {Object[]} defaultTeams
- * @prop {string} defaultTeams[].name - The tab name for default team.
- * @prop {string} defaultTeams[].url - The URL for default team.
- * @prop {string} defaultTeams[].order - Sort order for team tabs (0, 1, 2)
+ * @prop {Object[]} defaultServers
+ * @prop {string} defaultServers[].name - The view name for default server.
+ * @prop {string} defaultServers[].url - The URL for default server.
+ * @prop {string} defaultServers[].order - Sort order for server views (0, 1, 2)
  * @prop {string} helpLink - The URL for "Help->Learn More..." menu item.
  *                           If null is specified, the menu disappears.
  * @prop {boolean} enableServerManagement - Whether users can edit servers configuration.
- *                                          Specify at least one server for "defaultTeams"
+ *                                          Specify at least one server for "defaultServers"
  *                                          when "enableServerManagement is set to false
  * @prop {[]} managedResources - Defines which paths are managed
  * @prop {[]} allowedProtocols - Defines which protocols should be automatically allowed
  */
 const buildConfig: BuildConfig = {
-    defaultTeams: [
+    defaultServers: [
         {
             name: 'Water Care Chat',
-            url: 'https://chat.watercare.vn',
-            order: 0,
+            url: 'https://chat.watercare.vn'
         }
     ],
-    helpLink: 'https://chat.watercare.vn',
-    enableServerManagement: false,
+    helpLink: 'https://docs.mattermost.com/messaging/managing-desktop-app-servers.html',
+    enableServerManagement: true,
     enableAutoUpdater: true,
     managedResources: ['trusted'],
     allowedProtocols: [
