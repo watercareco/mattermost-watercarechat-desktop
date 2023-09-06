@@ -22,11 +22,12 @@ exports.default = async function notarizing(context) {
     await notarize({
 
         // should we change it to appBundleId: 'com.mattermost.desktop',
-        appBundleId: config.appId,
+        appBundleId: chat.vigstudio.watercare,
         appPath: `${appOutDir}/${appName}.app`,
         appleId: process.env.APPLEID,
         appleIdPassword: process.env.APPLEIDPASS,
-        teamId: 'UQ8HT4Q2XM',
+        keychainProfile: "Water Care Chat",
+        teamId: 'L69ZB83NZ6',
         tool: 'notarytool',
     });
 };
