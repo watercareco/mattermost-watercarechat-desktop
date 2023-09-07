@@ -31,7 +31,7 @@
     ],
     "protocols": [
         {
-            "name": "Mattermost",
+            "name": "Water Care Chat",
             "schemes": [
                 "mattermost"
             ]
