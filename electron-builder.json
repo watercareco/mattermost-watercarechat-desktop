@@ -88,6 +88,8 @@
         ]
     },
     "mac": {
+        "identity": "85B07F47D8FFC18F3BD5AA21EFA43F02BD85B162",
+        "provisioningProfile": "./mas.provisionprofile",
         "category": "public.app-category.productivity",
         "target": [
             "zip",
